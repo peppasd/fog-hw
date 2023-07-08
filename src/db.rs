@@ -53,17 +53,12 @@ pub async fn add_connection(
 ) -> Result<Connection, Box<dyn Error + Send + Sync>> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
 
-    let id = sqlx::query!(
-        r#"
-INSERT INTO connections ( uid, last_seen )
-VALUES ( ?1, ?2 )
-        "#,
-        uid,
-        now
-    )
-    .execute(pool)
-    .await?
-    .last_insert_rowid();
+    let id = sqlx::query("INSERT INTO connections ( uid, last_seen ) VALUES ( ?1, ?2 )")
+        .bind(uid)
+        .bind(now)
+        .execute(pool)
+        .await?
+        .last_insert_rowid();
 
     Ok(Connection {
         id: id,
@@ -76,13 +71,10 @@ pub async fn get_connection(
     pool: &Pool<Sqlite>,
     uid: &str,
 ) -> Result<Connection, Box<dyn Error + Send + Sync>> {
-    let conn = sqlx::query_as!(
-        Connection,
-        r#" SELECT * FROM connections WHERE uid = ?1 "#,
-        uid
-    )
-    .fetch_one(pool)
-    .await?;
+    let conn = sqlx::query_as::<_, Connection>("SELECT * FROM connections WHERE uid = ?1")
+        .bind(uid)
+        .fetch_one(pool)
+        .await?;
 
     Ok(conn)
 }
@@ -93,13 +85,11 @@ pub async fn update_connection(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
 
-    sqlx::query!(
-        r#" UPDATE connections SET last_seen = ?1 WHERE id = ?2 "#,
-        now,
-        uid
-    )
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE connections SET last_seen = ?1 WHERE id = ?2")
+        .bind(now)
+        .bind(uid)
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
@@ -108,7 +98,8 @@ pub async fn delete_connection(
     pool: &Pool<Sqlite>,
     uid: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    sqlx::query!(r#" DELETE FROM connections WHERE uid = ?1 "#, uid)
+    sqlx::query("DELETE FROM connections WHERE uid = ?1")
+        .bind(uid)
         .execute(pool)
         .await?;
 
@@ -119,14 +110,12 @@ pub async fn add_sent_message(
     pool: &Pool<Sqlite>,
     msg: &protocol::SensorMsg,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    sqlx::query!(
-        r#" INSERT INTO sent_messages ( uid, data, created_at ) VALUES ( ?1, ?2, ?3 ) "#,
-        msg.uid,
-        msg.data,
-        msg.timestamp
-    )
-    .execute(pool)
-    .await?;
+    sqlx::query("INSERT INTO sent_messages ( uid, data, created_at ) VALUES ( ?1, ?2, ?3 )")
+        .bind(&msg.uid)
+        .bind(&msg.data)
+        .bind(&msg.timestamp)
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
@@ -135,11 +124,10 @@ pub async fn get_last_sent_messages(
     pool: &Pool<Sqlite>,
     limit: i64,
 ) -> Result<Vec<SentMessage>, Box<dyn Error + Send + Sync>> {
-    let messages = sqlx::query_as!(
-        SentMessage,
-        r#" SELECT * FROM sent_messages ORDER BY created_at DESC LIMIT ?1 "#,
-        limit
+    let messages = sqlx::query_as::<_, SentMessage>(
+        "SELECT * FROM sent_messages ORDER BY created_at DESC LIMIT ?1",
     )
+    .bind(limit)
     .fetch_all(pool)
     .await?;
 
@@ -152,13 +140,11 @@ pub async fn add_queued_message(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
 
-    sqlx::query!(
-        r#" INSERT INTO queued_messages ( message, created_at ) VALUES ( ?1, ?2 ) "#,
-        msg,
-        now
-    )
-    .execute(pool)
-    .await?;
+    sqlx::query("INSERT INTO queued_messages ( message, created_at ) VALUES ( ?1, ?2 )")
+        .bind(msg)
+        .bind(now)
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
@@ -167,13 +153,11 @@ pub async fn get_new_queued_messages(
     pool: &Pool<Sqlite>,
     last_seen: &i64,
 ) -> Result<Vec<QueuedMessage>, Box<dyn Error + Send + Sync>> {
-    let messages = sqlx::query_as!(
-        QueuedMessage,
-        r#" SELECT * FROM queued_messages WHERE created_at > ?1 "#,
-        last_seen
-    )
-    .fetch_all(pool)
-    .await?;
+    let messages =
+        sqlx::query_as::<_, QueuedMessage>("SELECT * FROM queued_messages WHERE created_at > ?1")
+            .bind(last_seen)
+            .fetch_all(pool)
+            .await?;
 
     Ok(messages)
 }
