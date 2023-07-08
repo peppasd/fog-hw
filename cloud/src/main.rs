@@ -6,7 +6,7 @@ use tracing::{info, warn};
 
 mod db;
 mod handlers;
-mod protocol;
+mod protocols;
 
 pub struct AppState {
     pub pool: Pool<Sqlite>,
@@ -29,7 +29,7 @@ async fn main() {
     let shared_state = Arc::new(AppState { pool });
 
     //initialize average message service
-    tokio::spawn(protocol::avg_msg_service(shared_state.clone()));
+    tokio::spawn(protocols::avg_msg_service(shared_state.clone()));
 
     // initialize router
     let app = Router::new()
@@ -37,7 +37,7 @@ async fn main() {
         .route("/ws", get(handlers::handler))
         .with_state(shared_state.clone());
 
-    info!("Starting cloud server...");
+    info!("Starting the cloud server...");
     // start server
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())

@@ -3,7 +3,10 @@ use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tracing::{error, log::warn};
+use tracing::{
+    error,
+    log::{info, warn},
+};
 
 use crate::db;
 
@@ -119,6 +122,7 @@ pub async fn avg_msg_service(state: Arc<crate::AppState>) {
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
 
     let mut ticks = 0;
+    let mut last_id = -1;
 
     loop {
         interval.tick().await;
@@ -129,10 +133,14 @@ pub async fn avg_msg_service(state: Arc<crate::AppState>) {
             .unwrap_or(Vec::new());
 
         let size = messages.len();
-        if size == 0 {
-            warn!("AVG service: no messages to process, Tick {}", ticks);
+        if size == 0 || messages[0].id == last_id {
+            warn!(
+                "AVG service tick {}: No new messages to process, skipping tick",
+                ticks
+            );
             continue;
         }
+        last_id = messages[0].id;
 
         let mut avg: f64 = 0.0;
         for msg in messages {
@@ -154,7 +162,15 @@ pub async fn avg_msg_service(state: Arc<crate::AppState>) {
             .await
             .is_err()
         {
-            error!("AVG service: failed to add message to queue");
+            error!(
+                "AVG service tick {}: Failed to add message to the queue",
+                ticks
+            );
         }
+
+        info!(
+            "AVG service tick {}: Processed the last {} messages, avg: {}",
+            ticks, size, avg
+        )
     }
 }

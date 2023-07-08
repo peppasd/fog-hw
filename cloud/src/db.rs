@@ -4,8 +4,17 @@ use std::{
     error::Error,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tracing::info;
 
-use crate::protocol;
+use crate::protocols;
+
+#[derive(FromRow, Debug)]
+pub struct Metrics {
+    pub connections: Option<i32>,
+    pub received_messages: Option<i32>,
+    pub queued_messages: Option<i32>,
+    pub delivered_messages: Option<i32>,
+}
 
 #[derive(FromRow, Debug)]
 pub struct Connection {
@@ -15,7 +24,7 @@ pub struct Connection {
 }
 
 #[derive(FromRow, Debug)]
-pub struct SentMessage {
+pub struct ReceivedMessage {
     pub id: i64,
     pub uid: String,
     pub data: f64,
@@ -35,16 +44,37 @@ pub async fn initialize_db() -> Pool<Sqlite> {
     if !Sqlite::database_exists(&db_url).await.unwrap_or(false) {
         Sqlite::create_database(&db_url)
             .await
-            .expect("Could not create sqlite db");
+            .expect("Could not create the sqlite db");
+        info!("Created new sqlite db")
+    } else {
+        info!("Using an existing sqlite db")
     }
 
     let pool = SqlitePool::connect(&db_url)
         .await
-        .expect("Could not connect to sqlite db");
+        .expect("Could not connect to the sqlite db");
 
-    migrate!().run(&pool).await.expect("Could not migrate db");
+    migrate!()
+        .run(&pool)
+        .await
+        .expect("Could not migrate the db");
 
     pool
+}
+
+pub async fn get_metrics(pool: &Pool<Sqlite>) -> Result<Metrics, Box<dyn Error + Send + Sync>> {
+    let metrics = sqlx::query_as::<_, Metrics>(
+        r#" SELECT 
+            (SELECT COUNT(*) FROM connections) as connections,
+            (SELECT COUNT(*) FROM received_messages) as received_messages,
+            (SELECT COUNT(*) FROM queued_messages) as queued_messages,
+            (SELECT COUNT(*) FROM delivered_messages) as delivered_messages
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(metrics)
 }
 
 pub async fn add_connection(
@@ -94,21 +124,21 @@ pub async fn update_connection(
     Ok(())
 }
 
-pub async fn delete_connection(
-    pool: &Pool<Sqlite>,
-    uid: &str,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
-    sqlx::query("DELETE FROM connections WHERE uid = ?1")
-        .bind(uid)
-        .execute(pool)
-        .await?;
+// pub async fn delete_connection(
+//     pool: &Pool<Sqlite>,
+//     uid: &str,
+// ) -> Result<(), Box<dyn Error + Send + Sync>> {
+//     sqlx::query("DELETE FROM connections WHERE uid = ?1")
+//         .bind(uid)
+//         .execute(pool)
+//         .await?;
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 pub async fn add_received_message(
     pool: &Pool<Sqlite>,
-    msg: &protocol::SensorMsg,
+    msg: &protocols::SensorMsg,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     sqlx::query("INSERT INTO received_messages ( uid, data, created_at ) VALUES ( ?1, ?2, ?3 )")
         .bind(&msg.uid)
@@ -123,8 +153,8 @@ pub async fn add_received_message(
 pub async fn get_last_received_messages(
     pool: &Pool<Sqlite>,
     limit: i64,
-) -> Result<Vec<SentMessage>, Box<dyn Error + Send + Sync>> {
-    let messages = sqlx::query_as::<_, SentMessage>(
+) -> Result<Vec<ReceivedMessage>, Box<dyn Error + Send + Sync>> {
+    let messages = sqlx::query_as::<_, ReceivedMessage>(
         "SELECT * FROM received_messages ORDER BY created_at DESC LIMIT ?1",
     )
     .bind(limit)
@@ -151,13 +181,26 @@ pub async fn add_queued_message(
 
 pub async fn get_new_queued_messages(
     pool: &Pool<Sqlite>,
-    last_seen: &i64,
 ) -> Result<Vec<QueuedMessage>, Box<dyn Error + Send + Sync>> {
-    let messages =
-        sqlx::query_as::<_, QueuedMessage>("SELECT * FROM queued_messages WHERE created_at > ?1")
-            .bind(last_seen)
-            .fetch_all(pool)
-            .await?;
+    let messages = sqlx::query_as::<_, QueuedMessage>(
+        "SELECT * FROM queued_messages WHERE id NOT IN ( SELECT queued_message_id FROM delivered_messages ) ORDER BY created_at ASC")
+        .bind(0)
+        .fetch_all(pool)
+        .await?;
 
     Ok(messages)
+}
+
+pub async fn add_delivered_message(
+    pool: &Pool<Sqlite>,
+    uid: &str,
+    queued_message_id: &i64,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    sqlx::query("INSERT INTO delivered_messages ( uid, queued_message_id ) VALUES ( ?1, ?2 )")
+        .bind(uid)
+        .bind(queued_message_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
 }
