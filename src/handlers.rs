@@ -146,6 +146,10 @@ async fn ws_writer(mut sender: SplitSink<WebSocket, Message>, state: Arc<AppStat
             }
             info!("Sent message: {:?}", msg.message.to_string());
         }
+
+        if db::update_connection(&state.pool, &uid).await.is_err() {
+            error!("Error updating last seen timestamp");
+        }
     }
 }
 
