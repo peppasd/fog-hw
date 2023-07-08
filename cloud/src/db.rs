@@ -106,11 +106,11 @@ pub async fn delete_connection(
     Ok(())
 }
 
-pub async fn add_sent_message(
+pub async fn add_received_message(
     pool: &Pool<Sqlite>,
     msg: &protocol::SensorMsg,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    sqlx::query("INSERT INTO sent_messages ( uid, data, created_at ) VALUES ( ?1, ?2, ?3 )")
+    sqlx::query("INSERT INTO received_messages ( uid, data, created_at ) VALUES ( ?1, ?2, ?3 )")
         .bind(&msg.uid)
         .bind(&msg.data)
         .bind(&msg.timestamp)
@@ -120,12 +120,12 @@ pub async fn add_sent_message(
     Ok(())
 }
 
-pub async fn get_last_sent_messages(
+pub async fn get_last_received_messages(
     pool: &Pool<Sqlite>,
     limit: i64,
 ) -> Result<Vec<SentMessage>, Box<dyn Error + Send + Sync>> {
     let messages = sqlx::query_as::<_, SentMessage>(
-        "SELECT * FROM sent_messages ORDER BY created_at DESC LIMIT ?1",
+        "SELECT * FROM received_messages ORDER BY created_at DESC LIMIT ?1",
     )
     .bind(limit)
     .fetch_all(pool)

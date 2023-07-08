@@ -73,7 +73,7 @@ async fn ws_reader(mut receiver: SplitStream<WebSocket>, state: Arc<AppState>, u
                         let new_state = state.clone();
                         tokio::spawn(async move {
                             //add message to database
-                            if db::add_sent_message(&new_state.pool, &sensor_data)
+                            if db::add_received_message(&new_state.pool, &sensor_data)
                                 .await
                                 .is_err()
                             {

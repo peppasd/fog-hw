@@ -36,19 +36,25 @@ impl ConnMsg {
         let parts: Vec<&str> = msg.split("#").collect();
 
         if parts.len() != 2 {
-            error!("Invalid message: {:?}", msg);
+            error!(
+                "Invalid CONN message length: {:?} instead of 2",
+                parts.len()
+            );
             return Err("Invalid message".into());
         }
 
         // protocol part
         if parts[0] != "CONN" {
-            error!("Invalid protocol: {:?}", msg);
+            error!(
+                "Invalid CONN protocol header: {:?} instead of CONN",
+                parts[0]
+            );
             return Err("Invalid protocol".into());
         }
 
         let id = parts[1].parse::<String>()?;
         if id.len() != 36 {
-            error!("Invalid id: {:?}", msg);
+            error!("Invalid uuid: {:?}", id);
             return Err("Invalid id".into());
         }
 
@@ -67,19 +73,22 @@ impl SensorMsg {
         let parts: Vec<&str> = msg.split("#").collect();
 
         if parts.len() != 4 {
-            error!("Invalid message: {:?}", msg);
+            error!(
+                "Invalid SENSOR message length: {:?} instead of 4",
+                parts.len()
+            );
             return Err("Invalid message".into());
         }
 
         // protocol part
         if parts[0] != "SENSOR" {
-            error!("Invalid protocol: {:?}", msg);
+            error!("Invalid SENSOR header: {:?} instead od SENSOR", parts[0]);
             return Err("Invalid protocol".into());
         }
 
         let id = parts[1].parse::<String>()?;
         if id.len() != 36 {
-            error!("Invalid id: {:?}", msg);
+            error!("Invalid uuid: {:?}", id);
             return Err("Invalid id".into());
         }
 
@@ -109,16 +118,19 @@ impl AvgMsg {
 pub async fn avg_msg_service(state: Arc<crate::AppState>) {
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
 
+    let mut ticks = 0;
+
     loop {
         interval.tick().await;
+        ticks += 1;
 
-        let messages = db::get_last_sent_messages(&state.pool, 5)
+        let messages = db::get_last_received_messages(&state.pool, 5)
             .await
             .unwrap_or(Vec::new());
 
         let size = messages.len();
         if size == 0 {
-            warn!("Avg service: no messages to process");
+            warn!("AVG service: no messages to process, Tick {}", ticks);
             continue;
         }
 
@@ -142,7 +154,7 @@ pub async fn avg_msg_service(state: Arc<crate::AppState>) {
             .await
             .is_err()
         {
-            error!("Avg service: failed to add message to queue");
+            error!("AVG service: failed to add message to queue");
         }
     }
 }

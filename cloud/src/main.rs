@@ -2,7 +2,7 @@ use axum::{routing::get, Router};
 use dotenvy::dotenv;
 use sqlx::{Pool, Sqlite};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 mod db;
 mod handlers;
@@ -15,7 +15,9 @@ pub struct AppState {
 #[tokio::main]
 async fn main() {
     // load environment variables from .env file
-    dotenv().expect(".env file not found");
+    if dotenv().is_err() {
+        warn!("No .env file found");
+    }
 
     // initialize tracing
     tracing_subscriber::fmt()
