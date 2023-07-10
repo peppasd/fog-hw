@@ -143,6 +143,8 @@ async fn ws_reader(
                             //notify sender thread to close the websocket
                             let mut locked_is_active = new_is_active.lock().await;
                             *locked_is_active = false;
+
+                            info!("Websocket receiver with id {} closed", uid);
                         });
                         return;
                     }
@@ -179,6 +181,7 @@ async fn ws_writer(
                 error!("Error closing websocket: could not send close message");
             }
             sender.close().await.unwrap();
+            info!("Websocket sender with id {} closed", uid);
             return;
         }
 
