@@ -11,6 +11,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream, StreamExt},
 };
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::{error, info};
 
 pub async fn handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
@@ -51,11 +52,30 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
     // split socket into sender and receiver
     let (sender, receiver) = socket.split();
 
-    tokio::spawn(ws_writer(sender, state.clone(), uid));
-    tokio::spawn(ws_reader(receiver, state));
+    // create a connection state mutex
+    let is_active = Arc::new(Mutex::new(true));
+
+    let j_writer = tokio::spawn(ws_writer(
+        sender,
+        state.clone(),
+        uid.clone(),
+        is_active.clone(),
+    ));
+    let j_receiver = tokio::spawn(ws_reader(receiver, state, uid, is_active));
+
+    // wait for both threads to finish
+    j_writer.await.unwrap();
+    j_receiver.await.unwrap();
+
+    return;
 }
 
-async fn ws_reader(mut receiver: SplitStream<WebSocket>, state: Arc<AppState>) {
+async fn ws_reader(
+    mut receiver: SplitStream<WebSocket>,
+    state: Arc<AppState>,
+    uid: String,
+    is_active: Arc<Mutex<bool>>,
+) {
     while let Some(Ok(msg)) = receiver.next().await {
         let data = msg.into_text().unwrap();
         info!("Received message: {:?}", data);
@@ -68,6 +88,12 @@ async fn ws_reader(mut receiver: SplitStream<WebSocket>, state: Arc<AppState>) {
 
                 match sensor_data_result {
                     Ok(sensor_data) => {
+                        //make sure the connection uid matches the sensor data uid
+                        if sensor_data.uid != uid {
+                            error!("Sensor data uid doesn't match connection uid");
+                            return;
+                        }
+
                         //process message in a separate thread, so that the connection is not blocked
                         let new_state = state.clone();
                         tokio::spawn(async move {
@@ -94,19 +120,37 @@ async fn ws_reader(mut receiver: SplitStream<WebSocket>, state: Arc<AppState>) {
                 }
             }
             protocols::Protocol::DISCONN => {
-                error!("DISCONN is not yet properly implemented. Connection remains open");
+                let disconn_res = protocols::DisconnMsg::from_msg(&data);
+                match disconn_res {
+                    Ok(disconn_data) => {
+                        //make sure the connection uid matches the sensor data uid
+                        if disconn_data.uid != uid {
+                            error!("Sensor data uid doesn't match connection uid");
+                            return;
+                        }
 
-                // let new_state = state.clone();
-                // let new_uid = uid.clone();
-                // tokio::spawn(async move {
-                //     if db::delete_connection(&new_state.pool, &new_uid)
-                //         .await
-                //         .is_err()
-                //         {
-                //             error!("Error removing connection from database");
-                //         }
-                //     }
-                // );
+                        let new_state = state.clone();
+                        let new_is_active = is_active.clone();
+                        tokio::spawn(async move {
+                            //remove connection from database and all its messages
+                            if db::delete_connection(&new_state.pool, &disconn_data.uid)
+                                .await
+                                .is_err()
+                            {
+                                error!("Error removing connection from database");
+                            }
+
+                            //notify sender thread to close the websocket
+                            let mut locked_is_active = new_is_active.lock().await;
+                            *locked_is_active = false;
+                        });
+                        return;
+                    }
+                    Err(_) => {
+                        error!("Invalid protocol: {:?}", data.to_string());
+                        return;
+                    }
+                }
             }
             _ => {
                 error!("Invalid protocol: {:?}", data.to_string());
@@ -116,12 +160,27 @@ async fn ws_reader(mut receiver: SplitStream<WebSocket>, state: Arc<AppState>) {
     }
 }
 
-async fn ws_writer(mut sender: SplitSink<WebSocket, Message>, state: Arc<AppState>, uid: String) {
+async fn ws_writer(
+    mut sender: SplitSink<WebSocket, Message>,
+    state: Arc<AppState>,
+    uid: String,
+    is_active: Arc<Mutex<bool>>,
+) {
     // sending rate is 1 message per x seconds
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
 
     loop {
         interval.tick().await;
+
+        // check if connection is still active, if not close the websocket
+        let locked_is_active = is_active.lock().await;
+        if !*locked_is_active {
+            if sender.send(Message::Close(None)).await.is_err() {
+                error!("Error closing websocket: could not send close message");
+            }
+            sender.close().await.unwrap();
+            return;
+        }
 
         //retrieve all undelivered messages from the queue
         let res = db::get_new_queued_messages(&state.pool).await;

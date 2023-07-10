@@ -174,3 +174,38 @@ pub async fn avg_msg_service(state: Arc<crate::AppState>) {
         )
     }
 }
+
+pub struct DisconnMsg {
+    pub uid: String,
+}
+
+impl DisconnMsg {
+    pub fn from_msg(msg: &String) -> Result<Self, Box<dyn Error>> {
+        let parts: Vec<&str> = msg.split("#").collect();
+
+        if parts.len() != 2 {
+            error!(
+                "Invalid DISCONN message length: {:?} instead of 2",
+                parts.len()
+            );
+            return Err("Invalid message".into());
+        }
+
+        // protocol part
+        if parts[0] != "DISCONN" {
+            error!(
+                "Invalid DISCONN protocol header: {:?} instead of DISCONN",
+                parts[0]
+            );
+            return Err("Invalid protocol".into());
+        }
+
+        let id = parts[1].parse::<String>()?;
+        if id.len() != 36 {
+            error!("Invalid uuid: {:?}", id);
+            return Err("Invalid id".into());
+        }
+
+        Ok(Self { uid: id })
+    }
+}

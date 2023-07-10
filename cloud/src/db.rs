@@ -124,17 +124,17 @@ pub async fn update_connection(
     Ok(())
 }
 
-// pub async fn delete_connection(
-//     pool: &Pool<Sqlite>,
-//     uid: &str,
-// ) -> Result<(), Box<dyn Error + Send + Sync>> {
-//     sqlx::query("DELETE FROM connections WHERE uid = ?1")
-//         .bind(uid)
-//         .execute(pool)
-//         .await?;
+pub async fn delete_connection(
+    pool: &Pool<Sqlite>,
+    uid: &str,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    sqlx::query("DELETE FROM connections WHERE uid = ?1")
+        .bind(uid)
+        .execute(pool)
+        .await?;
 
-//     Ok(())
-// }
+    Ok(())
+}
 
 pub async fn add_received_message(
     pool: &Pool<Sqlite>,
